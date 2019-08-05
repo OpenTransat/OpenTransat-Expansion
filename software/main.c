@@ -23,17 +23,17 @@ https://creativecommons.org/licenses/by-sa/4.0/
 #define TMR1INIT (65535 - 31000) //timer1 increments +31000 per second
 
 #define RESET_AFTER_SEC 60 //reset after no heartbeat
-//#define RESET_AFTER_SEC 30 //TESTING reset after no heartbeat
+//#define RESET_AFTER_SEC 15 //TESTING reset after no heartbeat
 
-#define RELAY_AFTER_SEC 8*3600 //periodically turn off the whole boat
-//#define RELAY_AFTER_SEC 30 //TESTING periodically turn off the whole boat
+#define RELAY_AFTER_SEC 24UL*3600UL //periodically turn off the whole boat
+//#define RELAY_AFTER_SEC 60 //TESTING periodically turn off the whole boat
+
+#define WARNING_SEC 30 //WARNING pin LOW a number of seconds before relay shutdown
 
 #define RESET_US 200
 
 #define RELAY_SEC 15 //turn off time, discharge all capacitors
 //#define RELAY_SEC 10 //TESTING turn off time, discharge all capacitors
-
-#define MAX_RETRIES 9 //number of retries after unsuccessful reset (first only reset, next using relay)
 
 volatile unsigned long sectimer1, sectimer2; //incrementing each second in timer1 interrupt
 
@@ -79,7 +79,7 @@ void navreset() {
     NAVRESET = 0;
 }
 
-void relay_reset(int sec) {
+void relay_reset(unsigned int sec) {
     RELAY = 1;
     delay_sec(sec);
     RELAY = 0;
@@ -99,7 +99,6 @@ void main(void) {
     init_io();
 
     char hb, hb_prev;
-    int reset_retries = 0;
     sectimer1 = 0;
     sectimer2 = 0;
     TMR1 = TMR1INIT;
@@ -110,22 +109,14 @@ void main(void) {
         hb = HEARTBEAT;
 
         if (hb != hb_prev) { //heartbeat detected: reset sectimer1
-            reset_retries = 0;
             sectimer1 = 0;
             LED = 1;
             __delay_ms(10);
             LED = 0;
         }
         
-        if (sectimer1 > RESET_AFTER_SEC) { //no heartbeat: reset master CPU
-            if (reset_retries > 0 && reset_retries < MAX_RETRIES) { //the previous reset wasn't successful, still no heartbeat => use relay
-                relay_reset(RELAY_SEC * reset_retries); //prolonging the period after each unsuccessful reset
-                __delay_ms(100);
-                navreset();
-            } else {
-                navreset();
-            }
-            reset_retries++;
+        if (sectimer1 > RESET_AFTER_SEC) { //no heartbeat: reset master CPU (no warning)
+            navreset();
             sectimer1 = 0;
             LED = 1;
             __delay_ms(10);
@@ -133,7 +124,10 @@ void main(void) {
         }
         
         if (sectimer2 > RELAY_AFTER_SEC) { //relay shutdown every RELAY_AFTER_SEC seconds
+            WARNING = 0;
+            delay_sec(WARNING_SEC);
             relay_reset(RELAY_SEC);
+            WARNING = 1;
             __delay_ms(100);
             navreset();
             sectimer1 = 0;
